@@ -1,8 +1,11 @@
 module FWFTables
 
-import Base.tryparse, Base.iterate
+import Base.iterate
 import Tables
 import Tables.columnnames, Tables.getcolumn
+import Parsers
+import Parsers.tryparse
+import Formatting
 
 
 struct Blavar
@@ -16,22 +19,22 @@ end
 varregex = r"(?i)\s*((?P<name>\w+)\s*(?P<tekst>\".*\"|)\s*:|)\s*(?P<array>ARRAY\[(?P<astart>\d+)\.\.(?P<aeind>\d+)\]\s*OF\s*|)(?P<type>DUMMY|STRING|REAL|INTEGER)\s*\[\s*(?P<length>\d+)(\s*,\s*(?P<decimals>\d+)|)\s*\].*"
 
 convdatatype = Dict(
-                 "string"=>String, 
-                 "integer"=>Int64,
-                 "dummy"=>String,
-                 "real"=>Float64
-                 )
+  "string" => String,
+  "integer" => Int64,
+  "dummy" => Nothing,
+  "real" => Float64,
+)
 
 
-tryparse(::Type{Int}, ::Nothing) = 0
-tryparse(::Type{String}, s::String) = s 
+Parsers.tryparse(::Type{Int}, ::Nothing) = 0
+Parsers.tryparse(::Type{String}, s::String) = s
 
 
 function readbla(filename)
   bla = Vector{Blavar}()
-  file = open(filename)
-  regels = readlines(file)
-  close(file)
+  open(filename) do io
+    local regels = readlines(io)
+  end
   parsevars = false
   startpos = 1
   for regel in regels
@@ -46,22 +49,43 @@ function readbla(filename)
       name = lowercase(var[:name])
       datatype = convdatatype[lowercase(var[:type])]
       len = parse(Int64, var[:length])
-      decimals = tryparse(Int64, var[:decimals])
-      slice=startpos:(startpos+len-1)
-      #TODO: array naar aparte variabelen mappen
-      push!(bla, Blavar(name, slice, datatype, len, decimals))
-      startpos += len
+      decimals = Parsers.tryparse(Int64, var[:decimals])
+      if var[:array] == ""
+        slice = startpos:(startpos+len-1)
+        push!(bla, Blavar(name, slice, datatype, len, decimals))
+        startpos += len
+      else
+        # vector of vars
+        for varnr = parse(Int64, var[:astart]):parse(Int64, var[a:eind])
+          tmpname = name * "_" * string(varnr)
+          slice = startpos:(startpos+len-1)
+          push!(bla, Blavar(tmpname, slice, datatype, len, decimals))
+          startpos += len
+        end
+      end
     end
   end
   return bla
-end 
+end
 
+function makefmt(blavar::Blavar)
+  if blavar.datatype == String
+    fmt = "{:0" * string(blavar.length) * "s}"
+  elseif blavar.datatype == Int64
+    fmt = "{:0" * string(blavar.length) * "d}"
+  elseif blavar.datatype == Float64
+    fmt = "{:0" * string(blavar.length) * "." * string(blavar.decimals) * "f}"
+  end
+end
 
+function makefmt(bla::Vector{Blavar})
+  string([makefmt(x) for x in bla]...)
+end
 
-struct FWFTable 
+struct FWFTable
   handle::IOStream
   bla::Vector{Blavar}
-  names::Dict{Symbol, Int}
+  names::Dict{Symbol,Int}
   numberofrecords::Int
   recordlength::Int
   crlflength::Int
@@ -95,7 +119,7 @@ Tables.rowaccess(::FWFTable) = true
 Tables.rows(f::FWFTable) = f
 Base.eltype(f::FWFTable) = FWFTableRow
 Base.length(f::FWFTable) = getfield(f, :numberofrecords)
-Base.iterate(f::FWFTable, st=0) = nextline(f, st)
+Base.iterate(f::FWFTable, st = 0) = nextline(f, st)
 
 Tables.getcolumn(r::FWFTableRow, s::String) = Tables.getcolumn(r, Symbol(s))
 
@@ -103,7 +127,7 @@ Tables.columnnames(r::FWFTableRow) = names(getfield(r, :source))
 
 function Tables.getcolumn(r::FWFTableRow, col::Int)
   var = getfield(getfield(r, :source), :bla)[col]
-  value = tryparse(var.datatype, getfield(r, :rawrow)[var.slice])
+  value = Parsers.tryparse(var.datatype, getfield(r, :rawrow)[var.slice])
   if isnothing(value)
     return missing
   else
@@ -116,7 +140,7 @@ function Tables.getcolumn(r::FWFTableRow, nm::Symbol)
   var = getfield(getfield(r, :source), :bla)[col]
   rawrow = getfield(r, :rawrow)
   if var.slice.stop <= length(rawrow)
-    value = tryparse(var.datatype, rawrow[var.slice])
+    value = Parsers.tryparse(var.datatype, rawrow[var.slice])
   else
     value = Nothing
   end
@@ -127,12 +151,17 @@ function Tables.getcolumn(r::FWFTableRow, nm::Symbol)
   end
 end
 
-function File(filename, blafilename, crlf=1)
+function File(filename::String, blafilename::String, crlf = 1)
   bla = readbla(blafilename)
-  d = Dict([Symbol(elt.name)=>idx for (idx, elt) in enumerate(bla)])
+  File(filename, bla, crlf)
+end
+
+function File(filename::String, bla::Vector{Blavar}, crlf = 1)
+  blaselectie = [x for x in bla if x.datatype !== Nothing]
+  d = Dict([Symbol(elt.name) => idx for (idx, elt) in enumerate(blaselectie)])
   recordlength = sum(elt.length for elt in bla)
   filesize = stat(filename).size
-  if  filesize % (recordlength + crlf) in (0, crlf)
+  if filesize % (recordlength + crlf) in (0, crlf)
     numberofrecords = filesize ÷ (recordlength + crlf)
   elseif (filesize + crlf) % (recordlength + crlf) == 0
     numberofrecords = (filesize + crlf) ÷ (recordlength + crlf)
@@ -140,6 +169,21 @@ function File(filename, blafilename, crlf=1)
     numberofrecords = -1
   end
   handle = open(filename)
-  return FWFTable(handle, bla, d, numberofrecords, recordlength, crlf)
+  return FWFTable(handle, blaselectie, d, numberofrecords, recordlength, crlf)
 end
+
+function write(filename::String, blafilename::String, table)
+  bla::Vector{Blavar} = readbla(blafilename)
+  write(filename, bla, table)
+end
+
+function write(filename::String, bla::Vector{Blavar}, table)
+  fe = Formatting.FormatExpr(makefmt(bla))
+  open(filename, "w") do io
+    for row in Tables.rows(table)
+      Formatting.printfmtln(io, fe, row...)
+    end
+  end
+end
+
 end # module
