@@ -2,10 +2,10 @@ module FWFTables
 
 import Base.iterate
 import Tables
-import Tables.columnnames, Tables.getcolumn
 import Parsers
-import Parsers.tryparse
 import Formatting
+
+export readlba, Blavar, FWFTable, makefmt, File, write
 
 
 struct Blavar
@@ -32,8 +32,8 @@ Parsers.tryparse(::Type{String}, s::String) = s
 
 function readbla(filename)
   bla = Vector{Blavar}()
-  open(filename) do io
-    local regels = readlines(io)
+  regels = open(filename) do io
+    readlines(io)
   end
   parsevars = false
   startpos = 1
@@ -46,7 +46,11 @@ function readbla(filename)
     end
     var = match(varregex, regel)
     if !isnothing(var)
-      name = lowercase(var[:name])
+      if !isnothing(var[:name])
+        name = lowercase(var[:name])
+      else
+        name = "dummy"
+      end
       datatype = convdatatype[lowercase(var[:type])]
       len = parse(Int64, var[:length])
       decimals = Parsers.tryparse(Int64, var[:decimals])
@@ -75,6 +79,8 @@ function makefmt(blavar::Blavar)
     fmt = "{:0" * string(blavar.length) * "d}"
   elseif blavar.datatype == Float64
     fmt = "{:0" * string(blavar.length) * "." * string(blavar.decimals) * "f}"
+  elseif blavar.datatype == Nothing
+    fmt = repeat(" ", string(blavar.length))
   end
 end
 
@@ -187,3 +193,4 @@ function write(filename::String, bla::Vector{Blavar}, table)
 end
 
 end # module
+
