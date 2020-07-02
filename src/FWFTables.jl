@@ -7,7 +7,16 @@ import Formatting
 
 export readlba, Blavar, FWFTable, makefmt, File, write
 
+"""
+    Blavar
 
+Struct to hold the specification for a single variable from a Blaise specification.
+
+# Examples
+```julia-repl
+julia> blavar = Blavar("var1", 1:9, String, 9, 0)
+```
+"""
 struct Blavar
   name::String
   slice::UnitRange{Int64}
@@ -30,6 +39,12 @@ Parsers.tryparse(::Type{Int}, ::Nothing) = 0
 Parsers.tryparse(::Type{String}, s::String) = s
 
 
+"""
+    readbla(filename)
+
+Read a Blaise specification file for a fixed width ascii file. Returns a vector
+of 'Blavar' objects.
+"""
 function readbla(filename)
   bla = Vector{Blavar}()
   regels = open(filename) do io
@@ -157,11 +172,36 @@ function Tables.getcolumn(r::FWFTableRow, nm::Symbol)
   end
 end
 
+"""
+    File(filename, blafilename[, crlf=1])
+
+Read a fixed width file, using the specs from blafile. Returns an object
+implementing the Tables interface. crlf specifies the number of bytes used
+for carriage-return&linefeed.
+
+# Examples
+```julia-repl
+julia> using DataFrames, FWFTables
+julia> df = DataFrame(FWFTables.File("data.asc", "spec.bla")
+```
+"""
 function File(filename::String, blafilename::String, crlf = 1)
   bla = readbla(blafilename)
   File(filename, bla, crlf)
 end
 
+"""
+    File(filename, bla[, crlf=1])
+
+Use a vector of bla-definitions instead of the bla-file
+
+# Examples
+```julia-repl
+julia> using DataFrames, FWFTables
+julia> bla = readbla("spec.bla")
+julia> df = DataFrame(FWFTables.File("data.asc", bla)
+```
+"""
 function File(filename::String, bla::Vector{Blavar}, crlf = 1)
   blaselectie = [x for x in bla if x.datatype !== Nothing]
   d = Dict([Symbol(elt.name) => idx for (idx, elt) in enumerate(blaselectie)])
@@ -194,3 +234,4 @@ end
 
 end # module
 
+# vim: ts=2:sw=2:textwidth=89
