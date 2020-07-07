@@ -167,8 +167,8 @@ end
 
 
 Tables.istable(::FWFTable) = true
-names(f::FWFTable) = [var.name for var in f.specs]
-Tables.columnnames(f::FWFTable) = [var.name for var in f.specs]
+names(f::FWFTable) = [Symbol(var.name) for var in f.specs]
+Tables.columnnames(f::FWFTable) = [Symbol(var.name) for var in f.specs]
 types(f::FWFTable) = [var.datatype for var in f.specs]
 Tables.schema(f::FWFTable) = Tables.Schema(names(f), types(f))
 
