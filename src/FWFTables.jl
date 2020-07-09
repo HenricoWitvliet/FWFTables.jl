@@ -253,4 +253,125 @@ end
 
 end # module
 
-# vim: ts=2:sw=2:textwidth=89
+struct CharVector <: AbstractVector{String}
+    buffer::Vector{UInt8}
+    nrow::Int64
+    offset::Int64
+    length::Int64
+    recordlength::Int64
+end
+
+Base.IndexStyle(cv::CharVector) = IndexLinear()
+Base.size(cv::CharVector) = (cv.nrow, 1)
+function Base.getindex(cv::CharVector, i::Int)
+    startpos = (i-1) * cv.recordlength + cv.offset
+    endpos = (i-1) * cv.recordlength + cv.offset + cv.length - 1
+    s = String(cv.buffer[startpos:endpos])
+    return s
+end
+
+function Base.setindex!(cv::CharVector, v::String, i::Int)
+    startpos = (i-1) * cv.recordlength + cv.offset
+    endpos = (i-1) * cv.recordlength + cv.offset + cv.length - 1
+    cv.buffer[startpos:endpos] = UInt8.(collect(v))
+end
+
+function Base.similar(cv::CharVector)
+    bufferlength = cv.nrow * cv.length
+    return CharVector(Vector{UInt8}(undef, bufferlength), cv.nrow, 0, cv.length, cv.length)
+end
+
+function Base.copy(cv::CharVector)
+    bufferlength = cv.nrow * cv.length
+    buffer = Vector{UInt8}(undef, bufferlength)
+    offset = cv.offset
+    length = cv.length
+    recordlength = cv.recordlength
+    for i=0:(cv.nrow-1)
+        buffer[i*length + 1:i*length + length] = cv.buffer[i*recordlength + offset: i*recordlength + offset + length - 1]
+    end
+    return CharVector(buffer, cv.nrow, 1, cv.length, cv.length)
+end 
+
+
+struct CFWFTable <: Tables.AbstractColumns
+    specs::Vector{Varspec}
+    columns::Dict{Symbol, AbstractVector}
+end
+
+Tables.istable(::CFWFTable) = true
+Tables.columnaccess(::CFWFTable) = true
+Tables.getcolumn(t::CFWFTable, i::Int) = t.columns[Symbol(specs[i].name)]
+Tables.getcolumn(t::CFWFTable, nm::Symbol) = t.columns[nm]
+Tables.columnnames(t::CFWFTable) = [Symbol(spec.name) for spec in t.specs]
+
+function CFile(filename::String, specs::Vector{Varspec})
+    recordlength = maximum(spec.slice.stop for spec in specs)
+    specselectie = [x for x in specs if x.datatype !== Nothing]
+    buffer = open(filename) do io
+        bom = read(io, 3) == [0xef, 0xbb, 0xbf]
+        if !bom
+            seekstart(io)
+        end
+        read(io)
+    end
+    # TODO geen records apart opvangen
+    while buffer[recordlength+1] in [0x0a, 0x0d]
+        global recordlength = recordlength + 1
+    end
+    nrow = length(buffer) ÷ recordlength
+    columns = Dict{Symbol, AbstractVector}()
+    for spec in specselectie
+        if spec.datatype == String
+            column = CharVector(buffer, nrow, spec.slice.start, (spec.slice.stop - spec.slice.start + 1), recordlength)
+        elseif spec.datatype == Union{Missing, Int64}
+            column = Vector{Union{Missing, Int64}}(missing, nrow)
+            for i in 1:nrow
+                try
+                    setindex!(column, bytestoint(buffer[(i-1)*recordlength + spec.slice.start:(i-1)*recordlength + spec.slice.stop]), i)
+                catch e
+                end
+            end
+        elseif spec.datatype == Float64
+            column = Vector{Float64}(undef, nrow)
+            for i in 1:nrow
+                try
+                    setindex!(column, bytestofloat(buffer[(i-1)*recordlength + spec.slice.start:(i-1)*recordlength + spec.slice.stop]), i)
+                catch e
+                    setindex!(column, NaN64, i)
+                end
+            end
+        end
+        columns[Symbol(spec.name)] = column
+    end
+    return CFWFTable(specselectie, columns)
+end
+
+function bytestoint(b)
+    res = 0
+    for c in b
+        res = res * 10 + c - 48
+    end
+    return res
+end
+
+function bytestofloat(b, dec=0x2e)
+    res = 0
+    pre = true
+    factor = 0.1
+    for c in b
+        if c == dec
+            pre = false
+            continue
+        end
+        if pre
+            res = res * 10 + c - 48
+        else
+            res = res + factor * (c-48)
+            factor = factor / 10
+        end
+    end
+    return res
+end
+
+# vim: ts=4:sw=4:textwidth=89
