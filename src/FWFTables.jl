@@ -5,7 +5,7 @@ import Tables
 import Parsers
 import Formatting
 
-export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint
+export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint, CFILE
 
 """
     Blavar
@@ -251,7 +251,6 @@ function write(filename::String, specs::Vector{Varspec}, table)
     end
 end
 
-end # module
 
 struct CharVector <: AbstractVector{String}
     buffer::Vector{UInt8}
@@ -301,9 +300,18 @@ end
 
 Tables.istable(::CFWFTable) = true
 Tables.columnaccess(::CFWFTable) = true
-Tables.getcolumn(t::CFWFTable, i::Int) = t.columns[Symbol(specs[i].name)]
-Tables.getcolumn(t::CFWFTable, nm::Symbol) = t.columns[nm]
-Tables.columnnames(t::CFWFTable) = [Symbol(spec.name) for spec in t.specs]
+
+specs(t::CFWFTable) = getfield(t, :specs)
+cols(t::CFWFTable) = getfield(t, :columns)
+
+Tables.getcolumn(t::CFWFTable, i::Int) = cols(t)[Symbol(specs(t)[i].name)]
+Tables.getcolumn(t::CFWFTable, nm::Symbol) = cols(t)[nm]
+Tables.columnnames(t::CFWFTable) = [Symbol(spec.name) for spec in specs(t)]
+names(t::CFWFTable) = [Symbol(var.name) for var in specs(t)]
+types(t::CFWFTable) = [var.datatype for var in specs(t)]
+Tables.schema(t::CFWFTable) = Tables.schema(names(t), types(t))
+Base.length(t::CFWFTable) = length(cols(t)[Symbol(specs(t)[1].name)])
+
 
 function CFile(filename::String, specs::Vector{Varspec})
     recordlength = maximum(spec.slice.stop for spec in specs)
@@ -317,7 +325,7 @@ function CFile(filename::String, specs::Vector{Varspec})
     end
     # TODO geen records apart opvangen
     while buffer[recordlength+1] in [0x0a, 0x0d]
-        global recordlength = recordlength + 1
+        recordlength = recordlength + 1
     end
     nrow = length(buffer) ÷ recordlength
     columns = Dict{Symbol, AbstractVector}()
@@ -373,5 +381,8 @@ function bytestofloat(b, dec=0x2e)
     end
     return res
 end
+
+
+end # module
 
 # vim: ts=4:sw=4:textwidth=89
