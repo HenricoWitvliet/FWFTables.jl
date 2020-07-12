@@ -4,6 +4,7 @@ import Base.iterate
 import Tables
 import Parsers
 import Formatting
+import FixedSizeStrings
 
 export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint, CFILE
 
@@ -252,44 +253,52 @@ function write(filename::String, specs::Vector{Varspec}, table)
 end
 
 
-struct CharVector <: AbstractVector{String}
+abstract type AbstractNchar{N} <: AbstractString end
+struct Nchar{N} <: AbstractNchar{N}
+  value::String
+end
+Base.length(x::Nchar{N}) where N = N
+Core.String(c::Nchar{N}) where N = c.value
+Base.display(x::Nchar{N}) where N = display(x.value)
+Base.show(io, x::Nchar{N}) where N = Base.show(io, x.value)
+
+
+# Nchar is vervangen door FixedSizeString uit FixedSizeStrings
+struct CharVector{N, L} <: AbstractVector{FixedSizeStrings.FixedSizeString{N}}
     buffer::Vector{UInt8}
-    nrow::Int64
     offset::Int64
-    length::Int64
     recordlength::Int64
 end
 
-Base.IndexStyle(cv::CharVector) = IndexLinear()
-Base.size(cv::CharVector) = (cv.nrow, 1)
-function Base.getindex(cv::CharVector, i::Int)
+Base.IndexStyle(cv::CharVector{N, L}) where {N, L} = IndexLinear()
+Base.size(cv::CharVector{N, L}) where {N, L} = (L, 1)
+function Base.getindex(cv::CharVector{N, L}, i::Int) where {N, L}
     startpos = (i-1) * cv.recordlength + cv.offset
-    endpos = (i-1) * cv.recordlength + cv.offset + cv.length - 1
+    endpos = (i-1) * cv.recordlength + cv.offset + N - 1
     s = String(cv.buffer[startpos:endpos])
     return s
 end
 
-function Base.setindex!(cv::CharVector, v::String, i::Int)
+function Base.setindex!(cv::CharVector{N, L}, v::String, i::Int) where {N, L}
     startpos = (i-1) * cv.recordlength + cv.offset
-    endpos = (i-1) * cv.recordlength + cv.offset + cv.length - 1
+    endpos = (i-1) * cv.recordlength + cv.offset + N - 1
     cv.buffer[startpos:endpos] = UInt8.(collect(v))
 end
 
-function Base.similar(cv::CharVector)
-    bufferlength = cv.nrow * cv.length
-    return CharVector(Vector{UInt8}(undef, bufferlength), cv.nrow, 0, cv.length, cv.length)
+function Base.similar(cv::CharVector{N, L}) where {N, L}
+    bufferlength = L * N
+    return CharVector(Vector{UInt8}(undef, bufferlength), L, 1, N)
 end
 
-function Base.copy(cv::CharVector)
-    bufferlength = cv.nrow * cv.length
+function Base.copy(cv::CharVector{N, L}) where {N, L}
+    bufferlength = L * N
     buffer = Vector{UInt8}(undef, bufferlength)
     offset = cv.offset
-    length = cv.length
     recordlength = cv.recordlength
-    for i=0:(cv.nrow-1)
-        buffer[i*length + 1:i*length + length] = cv.buffer[i*recordlength + offset: i*recordlength + offset + length - 1]
+    for i=0:(L-1)
+        buffer[i*length + 1:i*length + N] = cv.buffer[i*recordlength + offset: i*recordlength + offset + N - 1]
     end
-    return CharVector(buffer, cv.nrow, 1, cv.length, cv.length)
+    return CharVector(buffer, L, 1, N)
 end 
 
 
@@ -331,7 +340,8 @@ function CFile(filename::String, specs::Vector{Varspec})
     columns = Dict{Symbol, AbstractVector}()
     for spec in specselectie
         if spec.datatype == String
-            column = CharVector(buffer, nrow, spec.slice.start, (spec.slice.stop - spec.slice.start + 1), recordlength)
+            length = spec.slice.stop - spec.slice.start + 1
+            column = CharVector{length, nrow}(buffer, spec.slice.start, recordlength) 
         elseif spec.datatype == Union{Missing, Int64}
             column = Vector{Union{Missing, Int64}}(missing, nrow)
             for i in 1:nrow
@@ -385,4 +395,4 @@ end
 
 end # module
 
-# vim: ts=4:sw=4:textwidth=89
+# vim: ts=4:sw=4:textwidth=89:fileencoding=utf-8
