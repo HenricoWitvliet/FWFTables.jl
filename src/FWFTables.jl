@@ -287,7 +287,7 @@ end
 
 function Base.similar(cv::CharVector{N, L}) where {N, L}
     bufferlength = L * N
-    return CharVector(Vector{UInt8}(undef, bufferlength), L, 1, N)
+    return CharVector{N, L}(Vector{UInt8}(undef, bufferlength), 1, N)
 end
 
 function Base.copy(cv::CharVector{N, L}) where {N, L}
@@ -296,15 +296,15 @@ function Base.copy(cv::CharVector{N, L}) where {N, L}
     offset = cv.offset
     recordlength = cv.recordlength
     for i=0:(L-1)
-        buffer[i*length + 1:i*length + N] = cv.buffer[i*recordlength + offset: i*recordlength + offset + N - 1]
+        buffer[i*N + 1:i*N + N] = cv.buffer[i*recordlength + offset: i*recordlength + offset + N - 1]
     end
-    return CharVector(buffer, L, 1, N)
+    return CharVector{N, L}(buffer, 1, N)
 end 
 
-Tables.allocatecolumn(::FixedSizeStrings.FixedSizeString{N}, L) where N = CharVector(Vector{UInt8}(undef, L*N), L, 1, N)
-function Base.copyto!(dest::CharVector{N, L}, d_o, so::CharVector{N, M}) where {N, L, M}
+Tables.allocatecolumn(::Type{FixedSizeStrings.FixedSizeString{N}}, L) where N = CharVector{N, L}(Vector{UInt8}(undef, L*N), 1, N)
+function Base.copyto!(dest::CharVector{N, L}, d_o::Integer, src::CharVector{N, M}) where {N, L, M}
     for i=0:(M-1)
-        dest.buffer[(d_o-1+i)*dest.recordlength+offset:(d_o-1+j)*dest.recordlength + offset + N - 1] = so.buffer[i*so.recordlength + offset:i*so.recordlength + so.offset + N - 1]
+        dest.buffer[(d_o-1+i)*dest.recordlength+dest.offset:(d_o-1+i)*dest.recordlength + dest.offset + N - 1] = src.buffer[i*src.recordlength + src.offset:i*src.recordlength + src.offset + N - 1]
     end
 end
 
