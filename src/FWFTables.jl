@@ -279,11 +279,20 @@ function Base.getindex(cv::CharVector{N, L}, i::Int) where {N, L}
     return s
 end
 
-function Base.setindex!(cv::CharVector{N, L}, v::String, i::Int) where {N, L}
+function Base.setindex!(cv::CharVector{N, L}, v, i::Int) where {N, L}
     startpos = (i-1) * cv.recordlength + cv.offset
     endpos = (i-1) * cv.recordlength + cv.offset + N - 1
     cv.buffer[startpos:endpos] = UInt8.(collect(v))
 end
+
+function Base.setindex!(cv::CharVector{N, L}, v, inds) where {N, L}
+  for i in inds
+    startpos = (i-1) * cv.recordlength + cv.offset
+    endpos = (i-1) * cv.recordlength + cv.offset + N - 1
+    cv.buffer[startpos:endpos] = UInt8.(collect(v))
+  end
+end
+
 
 function Base.similar(cv::CharVector{N, L}) where {N, L}
     bufferlength = L * N
