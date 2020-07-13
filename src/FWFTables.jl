@@ -255,71 +255,79 @@ end
 
 abstract type AbstractNchar{N} <: AbstractString end
 struct Nchar{N} <: AbstractNchar{N}
-  value::String
+    value::String
 end
-Base.length(x::Nchar{N}) where N = N
-Core.String(c::Nchar{N}) where N = c.value
-Base.display(x::Nchar{N}) where N = display(x.value)
-Base.show(io, x::Nchar{N}) where N = Base.show(io, x.value)
+Base.length(x::Nchar{N}) where {N} = N
+Core.String(c::Nchar{N}) where {N} = c.value
+Base.display(x::Nchar{N}) where {N} = display(x.value)
+Base.show(io, x::Nchar{N}) where {N} = Base.show(io, x.value)
 
 
 # Nchar is vervangen door FixedSizeString uit FixedSizeStrings
-struct CharVector{N, L} <: AbstractVector{FixedSizeStrings.FixedSizeString{N}}
+struct CharVector{N,L} <: AbstractVector{FixedSizeStrings.FixedSizeString{N}}
     buffer::Vector{UInt8}
     offset::Int64
     recordlength::Int64
 end
 
-Base.IndexStyle(cv::CharVector{N, L}) where {N, L} = IndexLinear()
-Base.size(cv::CharVector{N, L}) where {N, L} = (L, 1)
-function Base.getindex(cv::CharVector{N, L}, i::Int) where {N, L}
-    startpos = (i-1) * cv.recordlength + cv.offset
-    endpos = (i-1) * cv.recordlength + cv.offset + N - 1
+Base.IndexStyle(cv::CharVector{N,L}) where {N,L} = IndexLinear()
+Base.size(cv::CharVector{N,L}) where {N,L} = (L, 1)
+function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
+    startpos = (i - 1) * cv.recordlength + cv.offset
+    endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
     s = String(cv.buffer[startpos:endpos])
     return s
 end
 
-function Base.setindex!(cv::CharVector{N, L}, v, i::Int) where {N, L}
-    startpos = (i-1) * cv.recordlength + cv.offset
-    endpos = (i-1) * cv.recordlength + cv.offset + N - 1
+function Base.setindex!(cv::CharVector{N,L}, v, i::Integer) where {N,L}
+    startpos = (i - 1) * cv.recordlength + cv.offset
+    endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
     cv.buffer[startpos:endpos] = UInt8.(collect(v))
 end
 
-function Base.setindex!(cv::CharVector{N, L}, v, inds) where {N, L}
-  for i in inds
-    startpos = (i-1) * cv.recordlength + cv.offset
-    endpos = (i-1) * cv.recordlength + cv.offset + N - 1
-    cv.buffer[startpos:endpos] = UInt8.(collect(v))
-  end
+function Base.setindex!(cv::CharVector{N,L}, v, inds::AbstractUnitRange) where {N,L}
+    println(typeof(inds))
+    for i in inds
+        startpos = (i - 1) * cv.recordlength + cv.offset
+        endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
+        cv.buffer[startpos:endpos] = UInt8.(collect(v))
+    end
 end
 
 
-function Base.similar(cv::CharVector{N, L}) where {N, L}
+function Base.similar(cv::CharVector{N,L}) where {N,L}
     bufferlength = L * N
-    return CharVector{N, L}(Vector{UInt8}(undef, bufferlength), 1, N)
+    return CharVector{N,L}(Vector{UInt8}(undef, bufferlength), 1, N)
 end
 
-function Base.copy(cv::CharVector{N, L}) where {N, L}
+function Base.copy(cv::CharVector{N,L}) where {N,L}
     bufferlength = L * N
     buffer = Vector{UInt8}(undef, bufferlength)
     offset = cv.offset
     recordlength = cv.recordlength
-    for i=0:(L-1)
-        buffer[i*N + 1:i*N + N] = cv.buffer[i*recordlength + offset: i*recordlength + offset + N - 1]
+    for i = 0:(L-1)
+        buffer[i*N+1:i*N+N] = cv.buffer[i*recordlength+offset:i * recordlength+offset+N-1]
     end
-    return CharVector{N, L}(buffer, 1, N)
-end 
+    return CharVector{N,L}(buffer, 1, N)
+end
 
-Tables.allocatecolumn(::Type{FixedSizeStrings.FixedSizeString{N}}, L) where N = CharVector{N, L}(Vector{UInt8}(undef, L*N), 1, N)
-function Base.copyto!(dest::CharVector{N, L}, d_o::Integer, src::CharVector{N, M}) where {N, L, M}
-    for i=0:(M-1)
-        dest.buffer[(d_o-1+i)*dest.recordlength+dest.offset:(d_o-1+i)*dest.recordlength + dest.offset + N - 1] = src.buffer[i*src.recordlength + src.offset:i*src.recordlength + src.offset + N - 1]
+Tables.allocatecolumn(::Type{FixedSizeStrings.FixedSizeString{N}}, L) where {N} =
+    CharVector{N,L}(Vector{UInt8}(undef, L * N), 1, N)
+function Base.copyto!(
+    dest::CharVector{N,L},
+    d_o::Integer,
+    src::CharVector{N,M},
+) where {N,L,M}
+    for i = 0:(M-1)
+        dest.buffer[(d_o-1+i)*dest.recordlength+dest.offset:(d_o - 1 + i) *
+                                                            dest.recordlength+dest.offset+N-1] =
+            src.buffer[i*src.recordlength+src.offset:i * src.recordlength+src.offset+N-1]
     end
 end
 
 struct CFWFTable <: Tables.AbstractColumns
     specs::Vector{Varspec}
-    columns::Dict{Symbol, AbstractVector}
+    columns::Dict{Symbol,AbstractVector}
 end
 
 Tables.istable(::CFWFTable) = true
@@ -352,24 +360,32 @@ function CFile(filename::String, specs::Vector{Varspec})
         recordlength = recordlength + 1
     end
     nrow = length(buffer) ÷ recordlength
-    columns = Dict{Symbol, AbstractVector}()
+    columns = Dict{Symbol,AbstractVector}()
     for spec in specselectie
         if spec.datatype == String
             length = spec.slice.stop - spec.slice.start + 1
-            column = CharVector{length, nrow}(buffer, spec.slice.start, recordlength) 
-        elseif spec.datatype == Union{Missing, Int64}
-            column = Vector{Union{Missing, Int64}}(missing, nrow)
-            for i in 1:nrow
+            column = CharVector{length,nrow}(buffer, spec.slice.start, recordlength)
+        elseif spec.datatype == Union{Missing,Int64}
+            column = Vector{Union{Missing,Int64}}(missing, nrow)
+            for i = 1:nrow
                 try
-                    setindex!(column, bytestoint(buffer[(i-1)*recordlength + spec.slice.start:(i-1)*recordlength + spec.slice.stop]), i)
+                    setindex!(
+                        column,
+                        bytestoint(buffer[(i-1)*recordlength+spec.slice.start:(i-1)*recordlength+spec.slice.stop]),
+                        i,
+                    )
                 catch e
                 end
             end
         elseif spec.datatype == Float64
             column = Vector{Float64}(undef, nrow)
-            for i in 1:nrow
+            for i = 1:nrow
                 try
-                    setindex!(column, bytestofloat(buffer[(i-1)*recordlength + spec.slice.start:(i-1)*recordlength + spec.slice.stop]), i)
+                    setindex!(
+                        column,
+                        bytestofloat(buffer[(i-1)*recordlength+spec.slice.start:(i-1)*recordlength+spec.slice.stop]),
+                        i,
+                    )
                 catch e
                     setindex!(column, NaN64, i)
                 end
@@ -388,7 +404,7 @@ function bytestoint(b)
     return res
 end
 
-function bytestofloat(b, dec=0x2e)
+function bytestofloat(b, dec = 0x2e)
     res = 0
     pre = true
     factor = 0.1
@@ -400,7 +416,7 @@ function bytestofloat(b, dec=0x2e)
         if pre
             res = res * 10 + c - 48
         else
-            res = res + factor * (c-48)
+            res = res + factor * (c - 48)
             factor = factor / 10
         end
     end
