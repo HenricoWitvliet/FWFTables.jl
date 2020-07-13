@@ -301,6 +301,12 @@ function Base.copy(cv::CharVector{N, L}) where {N, L}
     return CharVector(buffer, L, 1, N)
 end 
 
+Tables.allocatecolumn (t::FixedSizeString{N}, L) where {N, L} = CharVector(Vector{UInt8}(undef, L*N), L, 1, N)
+function Base.copyto!(dest::CharVector{N, L}, do, so::CharVector{N, M} where (N, L, M)
+    for i=0:(M-1)
+        dest.buffer[(do-1+i)*dest.recordlength+offset:(do-1+j)*dest.recordlength + offset + N -1)] = so.buffer[i*so.recordlength + offset:i*so.recordlength + so.offset + M - 1]
+    end
+end
 
 struct CFWFTable <: Tables.AbstractColumns
     specs::Vector{Varspec}
@@ -336,7 +342,7 @@ function CFile(filename::String, specs::Vector{Varspec})
     while buffer[recordlength+1] in [0x0a, 0x0d]
         recordlength = recordlength + 1
     end
-    nrow = length(buffer) ÷ recordlength
+    nrow = length(buffer) Ã· recordlength
     columns = Dict{Symbol, AbstractVector}()
     for spec in specselectie
         if spec.datatype == String
