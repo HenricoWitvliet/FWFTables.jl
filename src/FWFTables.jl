@@ -272,6 +272,7 @@ end
 
 Base.IndexStyle(cv::CharVector{N,L}) where {N,L} = IndexLinear()
 Base.size(cv::CharVector{N,L}) where {N,L} = (L, 1)
+
 function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
     startpos = (i - 1) * cv.recordlength + cv.offset
     endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
@@ -279,7 +280,9 @@ function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
     return s
 end
 
+Base.view(cv::CharVector{N, L}, i::Integer) where {N, L} = cv[i]
 Base.getindex(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = view(cv, collect(inds))
+Base.getindex(cv::CharVector{N, L}, inds) where {N, L} = view(cv, inds)
 Base.Broadcast.dotview(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = Base.Broadcast.dotview(cv, collect(inds))
 
 function Base.setindex!(cv::CharVector{N,L}, v, i::Integer) where {N,L}
@@ -327,6 +330,9 @@ function Base.copyto!(
             src.buffer[i*src.recordlength+src.offset:i * src.recordlength+src.offset+N-1]
     end
 end
+
+# TODO: deleteat!(cv::CharVector, i::Integer)
+# TODO: deleteat!(cv::CharVector, inds)
 
 struct CFWFTable <: Tables.AbstractColumns
     specs::Vector{Varspec}
@@ -401,7 +407,12 @@ end
 
 function bytestoint(b)
     res = 0
+    sign = false
     for c in b
+    	if c == 0x2d
+		sign = true
+		continue
+	end
         res = res * 10 + c - 48
     end
     return res
