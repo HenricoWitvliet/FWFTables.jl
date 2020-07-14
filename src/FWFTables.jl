@@ -279,6 +279,9 @@ function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
     return s
 end
 
+Base.getindex(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = view(cv, collect(inds))
+Base.Broadcast.dotview(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = Base.Broadcast.dotview(cv, collect(inds))
+
 function Base.setindex!(cv::CharVector{N,L}, v, i::Integer) where {N,L}
     startpos = (i - 1) * cv.recordlength + cv.offset
     endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
