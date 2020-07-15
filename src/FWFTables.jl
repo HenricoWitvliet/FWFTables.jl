@@ -4,9 +4,9 @@ import Base.iterate
 import Tables
 import Parsers
 import Formatting
-import FixedSizeStrings
+import FixedSizeStrings.FixedSizeString
 
-export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint, CFILE
+export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint, CFile
 
 """
     Blavar
@@ -30,15 +30,16 @@ struct Varspec
     name::String
     slice::UnitRange{Int64}
     datatype::Type
-    stringtodata::Function
-    datatostring::Function
+    startpos::Int64
+    length::Int64
+    decimals::Int64
 end
 
 
 varregex = r"(?i)\s*((?P<name>\w+)\s*(?P<tekst>\".*\"|)\s*:|)\s*(?P<array>ARRAY\[(?P<astart>\d+)\.\.(?P<aeind>\d+)\]\s*OF\s*|)(?P<type>DUMMY|STRING|REAL|INTEGER)\s*\[\s*(?P<length>\d+)(\s*,\s*(?P<decimals>\d+)|)\s*\].*"
 
 convdatatype = Dict(
-    "string" => String,
+    "string" => FixedSizeString,
     "integer" => Union{Missing,Int64},
     "dummy" => Nothing,
     "real" => Float64,
@@ -105,19 +106,15 @@ function readbla(filename)
             decimals = Parsers.tryparse(Int64, var[:decimals])
             datatype = convdatatype[lowercase(var[:type])]
             slice = startpos:(startpos+len-1)
-            blavar = Blavar(name, slice, datatype, len, decimals)
-            dataconv = convdatafunctie[lowercase(var[:type])]
-            datafmt = makefmt(blavar)
             if var[:array] == ""
-                push!(spec, Varspec(name, slice, datatype, dataconv, datafmt))
+                push!(spec, Varspec(name, slice, datatype, startpos, len, decimals))
                 startpos += len
             else
                 # vector of vars
                 for varnr = parse(Int64, var[:astart]):parse(Int64, var[a:eind])
                     tmpname = name * "_" * string(varnr)
                     slice = startpos:(startpos+len-1)
-                    blavar = Blavar(tmpname, slice, datatype, len, decimals)
-                    push!(spec, Varspec(tmpname, slice, datatype, dataconv, datafmt))
+                    push!(spec, Varspec(tmpname, slice, datatype, startpos, len, decimals))
                     startpos += len
                 end
             end
@@ -126,21 +123,21 @@ function readbla(filename)
     return spec
 end
 
-function makefmt(blavar::Blavar)
-    if blavar.datatype == String
-        fmt = "{:0" * string(blavar.length) * "s}"
-    elseif blavar.datatype == Int64
-        fmt = "{:0" * string(blavar.length) * "d}"
-    elseif blavar.datatype == Float64
-        fmt = "{:0" * string(blavar.length) * "." * string(blavar.decimals) * "f}"
-    elseif blavar.datatype == Nothing
-        fmt = repeat(" ", string(blavar.length))
+function makefmt(spec::Varspec)
+    if spec.datatype == FixedSizeString
+        fmt = "{:0" * string(spec.length) * "s}"
+    elseif spec.datatype == Union(Missing, Int64)
+        fmt = "{:0" * string(spec.length) * "d}"
+    elseif spec.datatype == Float64
+        fmt = "{:0" * string(spec.length) * "." * string(spec.decimals) * "f}"
+    elseif spec.datatype == Nothing
+        fmt = repeat(" ", string(spec.length))
     end
     return x -> fmt
 end
 
 function makefmt(specs::Vector{Varspec})
-    string([spec.datatostring for spec in specs]...)
+    string([makefmt(spec) for spec in specs]...)
 end
 
 struct FWFTable
@@ -264,7 +261,7 @@ Base.show(io, x::Nchar{N}) where {N} = Base.show(io, x.value)
 
 
 # Nchar is vervangen door FixedSizeString uit FixedSizeStrings
-struct CharVector{N,L} <: AbstractVector{FixedSizeStrings.FixedSizeString{N}}
+struct CharVector{N,L} <: AbstractVector{FixedSizeString{N}}
     buffer::Vector{UInt8}
     offset::Int64
     recordlength::Int64
@@ -317,7 +314,7 @@ function Base.copy(cv::CharVector{N,L}) where {N,L}
     return CharVector{N,L}(buffer, 1, N)
 end
 
-Tables.allocatecolumn(::Type{FixedSizeStrings.FixedSizeString{N}}, L) where {N} =
+Tables.allocatecolumn(::Type{FixedSizeString{N}}, L) where {N} =
     CharVector{N,L}(Vector{UInt8}(undef, L * N), 1, N)
 function Base.copyto!(
     dest::CharVector{N,L},
@@ -353,6 +350,35 @@ types(t::CFWFTable) = [var.datatype for var in specs(t)]
 Tables.schema(t::CFWFTable) = Tables.schema(names(t), types(t))
 Base.length(t::CFWFTable) = length(cols(t)[Symbol(specs(t)[1].name)])
 
+function createcolumn(::Type{FixedSizeString}, buffer, nrow, startpos, length, recordlength)
+    CharVector{length, nrow}(buffer, startpos, recordlength)
+end
+
+function createcolumn(::Type{Union{Missing, Int64}}, buffer, nrow, startpos, length, recordlength)
+    column = Vector{Union{Missing, Int64}}(missing, nrow)
+    select_end = startpos + length - 1
+    for i = 1:nrow
+        setindex!(
+            column,
+            bytestoint(Int64, buffer[(i-1)*recordlength+startpos:(i-1)*recordlength+select_end]),
+            i,
+        )
+    end
+    return column
+end
+
+function createcolumn(::Type{Float64}, buffer, nrow, startpos, length, recordlength)
+    column = Vector{Float64}(undef, nrow)
+    select_end = startpos + length - 1
+    for i = 1:nrow
+        setindex!(
+            column,
+            bytestofloat(buffer[(i-1)*recordlength+startpos:(i-1)*recordlength+select_end]),
+            i,
+           )
+    end
+    return column
+end
 
 function CFile(filename::String, specs::Vector{Varspec})
     recordlength = maximum(spec.slice.stop for spec in specs)
@@ -371,68 +397,63 @@ function CFile(filename::String, specs::Vector{Varspec})
     nrow = length(buffer) ÷ recordlength
     columns = Dict{Symbol,AbstractVector}()
     for spec in specselectie
-        if spec.datatype == String
-            length = spec.slice.stop - spec.slice.start + 1
-            column = CharVector{length,nrow}(buffer, spec.slice.start, recordlength)
-        elseif spec.datatype == Union{Missing,Int64}
-            column = Vector{Union{Missing,Int64}}(missing, nrow)
-            for i = 1:nrow
-                try
-                    setindex!(
-                        column,
-                        bytestoint(buffer[(i-1)*recordlength+spec.slice.start:(i-1)*recordlength+spec.slice.stop]),
-                        i,
-                    )
-                catch e
-                end
-            end
-        elseif spec.datatype == Float64
-            column = Vector{Float64}(undef, nrow)
-            for i = 1:nrow
-                try
-                    setindex!(
-                        column,
-                        bytestofloat(buffer[(i-1)*recordlength+spec.slice.start:(i-1)*recordlength+spec.slice.stop]),
-                        i,
-                    )
-                catch e
-                    setindex!(column, NaN64, i)
-                end
-            end
-        end
+        column = createcolumn(spec.datatype, buffer, nrow, spec.startpos, spec.length, recordlength)
         columns[Symbol(spec.name)] = column
     end
     return CFWFTable(specselectie, columns)
 end
 
-function bytestoint(b)
-    res = 0
+function bytestoint(::Type{T}, b::Array{UInt8}) where {T<:Integer}
+    if length(b) == 0
+        return missing
+    end
+    res::T = 0
     sign = false
     for c in b
-    	if c == 0x2d
-		sign = true
-		continue
-	end
+        if c == 0x2d && !sign 
+            sign = true
+            continue
+        elseif c == 0x20
+            continue
+        elseif (c < 0x30) || (c > 0x39)
+            return missing
+        end
         res = res * 10 + c - 48
+    end
+    if sign
+      return -res
     end
     return res
 end
 
-function bytestofloat(b, dec = 0x2e)
-    res = 0
+function bytestofloat(b::Array{UInt8}, dec = 0x2e)
+    if length(b) == 0
+        return NaN64
+    end
+    res::Float64 = 0
+    sign = false
     pre = true
     factor = 0.1
     for c in b
-        if c == dec
+    	if c == 0x2d && !sign
+            sign = true
+            continue
+        elseif c == 0x20
+            continue
+        elseif c == dec
             pre = false
             continue
-        end
-        if pre
+        elseif (c < 0x30) || (c > 0x39)
+            return NaN64
+        elseif pre
             res = res * 10 + c - 48
         else
             res = res + factor * (c - 48)
             factor = factor / 10
         end
+    end
+    if sign
+      return -res
     end
     return res
 end

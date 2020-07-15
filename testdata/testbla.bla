@@ -1,6 +1,6 @@
 datamodel testbla
  Fields
-    var1        : string[9]
+    var1        : integer[9]
     var2        : string[8]
     var3        : Real[8, 2]
 endmodel
