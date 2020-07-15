@@ -6,25 +6,8 @@ import Parsers
 import Formatting
 import FixedSizeStrings.FixedSizeString
 
-export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint, CFile
+export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint
 
-"""
-    Blavar
-
-Struct to hold the specification for a single variable from a Blaise specification.
-
-# Examples
-```julia-repl
-julia> blavar = Blavar("var1", 1:9, String, 9, 0)
-```
-"""
-struct Blavar
-    name::String
-    slice::UnitRange{Int64}
-    datatype::Type
-    length::Int64
-    decimals::Int64
-end
 
 struct Varspec
     name::String
@@ -126,72 +109,20 @@ end
 function makefmt(spec::Varspec)
     if spec.datatype == FixedSizeString
         fmt = "{:0" * string(spec.length) * "s}"
-    elseif spec.datatype == Union(Missing, Int64)
+    elseif spec.datatype == Union{Missing, Int64}
         fmt = "{:0" * string(spec.length) * "d}"
     elseif spec.datatype == Float64
         fmt = "{:0" * string(spec.length) * "." * string(spec.decimals) * "f}"
     elseif spec.datatype == Nothing
         fmt = repeat(" ", string(spec.length))
     end
-    return x -> fmt
+    return fmt
 end
 
 function makefmt(specs::Vector{Varspec})
     string([makefmt(spec) for spec in specs]...)
 end
 
-struct FWFTable
-    handle::IOStream
-    specs::Vector{Varspec}
-    names::Dict{Symbol,Varspec}
-    numberofrecords::Int
-end
-
-struct FWFTableRow <: Tables.AbstractRow
-    row::Int
-    rawrow::String
-    source::FWFTable
-end
-
-
-function nextline(f, st)
-    rawrow = readline(f.handle)
-    if rawrow == ""
-        return nothing
-    else
-        return (FWFTableRow(st + 1, rawrow, f), st + 1)
-    end
-end
-
-
-Tables.istable(::FWFTable) = true
-names(f::FWFTable) = [Symbol(var.name) for var in f.specs]
-Tables.columnnames(f::FWFTable) = [Symbol(var.name) for var in f.specs]
-types(f::FWFTable) = [var.datatype for var in f.specs]
-Tables.schema(f::FWFTable) = Tables.Schema(names(f), types(f))
-
-
-Tables.rowaccess(::FWFTable) = true
-Tables.rows(f::FWFTable) = f
-Base.eltype(f::FWFTable) = FWFTableRow
-Base.length(f::FWFTable) = getfield(f, :numberofrecords)
-Base.iterate(f::FWFTable, st = 0) = nextline(f, st)
-
-Tables.getcolumn(r::FWFTableRow, s::String) = Tables.getcolumn(r, Symbol(s))
-
-Tables.columnnames(r::FWFTableRow) = names(getfield(r, :source))
-
-function Tables.getcolumn(r::FWFTableRow, col::Int)
-    var = getfield(getfield(r, :source), :specs)[col]
-    value = var.stringtodata(getfield(r, :rawrow)[var.slice])
-    return value
-end
-
-function Tables.getcolumn(r::FWFTableRow, nm::Symbol)
-    var = getfield(getfield(r, :source), :names)[nm]
-    value = var.stringtodata(getfield(r, :rawrow)[var.slice])
-    return value
-end
 
 """
     File(filename, blafilename)
@@ -210,30 +141,6 @@ function File(filename::String, blafilename::String)
     File(filename, specs)
 end
 
-"""
-    File(filename, specs)
-
-Use a vector of Varspec-definitions instead of the bla-file
-
-# Examples
-```julia-repl
-julia> using DataFrames, FWFTables
-julia> specs = readbla("spec.bla")
-julia> df = DataFrame(FWFTables.File("data.asc", specs)
-```
-"""
-function File(filename::String, specs::Vector{Varspec})
-    specselectie = [x for x in specs if x.datatype !== Nothing]
-    d = Dict([Symbol(elt.name) => elt for elt in specselectie])
-    handle = open(filename)
-    numberofrecords = countlines(handle)
-    seekstart(handle)
-    bom = read(handle, 3) == [0xef, 0xbb, 0xbf]
-    if !bom
-        seekstart(handle)
-    end
-    return FWFTable(handle, specselectie, d, numberofrecords)
-end
 
 function write(filename::String, blafilename::String, table)
     specs::Vector{Varspec} = readbla(blafilename)
@@ -273,7 +180,8 @@ Base.size(cv::CharVector{N,L}) where {N,L} = (L, 1)
 function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
     startpos = (i - 1) * cv.recordlength + cv.offset
     endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
-    s = String(cv.buffer[startpos:endpos])
+    #s = String(cv.buffer[startpos:endpos])
+    s = FixedSizeString{N}(view(cv.buffer, startpos:endpos))
     return s
 end
 
@@ -289,7 +197,6 @@ function Base.setindex!(cv::CharVector{N,L}, v, i::Integer) where {N,L}
 end
 
 function Base.setindex!(cv::CharVector{N,L}, v, inds::AbstractUnitRange) where {N,L}
-    println(typeof(inds))
     for i in inds
         startpos = (i - 1) * cv.recordlength + cv.offset
         endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
@@ -331,24 +238,24 @@ end
 # TODO: deleteat!(cv::CharVector, i::Integer)
 # TODO: deleteat!(cv::CharVector, inds)
 
-struct CFWFTable <: Tables.AbstractColumns
+struct FWFTable <: Tables.AbstractColumns
     specs::Vector{Varspec}
     columns::Dict{Symbol,AbstractVector}
 end
 
-Tables.istable(::CFWFTable) = true
-Tables.columnaccess(::CFWFTable) = true
+Tables.istable(::FWFTable) = true
+Tables.columnaccess(::FWFTable) = true
 
-specs(t::CFWFTable) = getfield(t, :specs)
-cols(t::CFWFTable) = getfield(t, :columns)
+specs(t::FWFTable) = getfield(t, :specs)
+cols(t::FWFTable) = getfield(t, :columns)
 
-Tables.getcolumn(t::CFWFTable, i::Int) = cols(t)[Symbol(specs(t)[i].name)]
-Tables.getcolumn(t::CFWFTable, nm::Symbol) = cols(t)[nm]
-Tables.columnnames(t::CFWFTable) = [Symbol(spec.name) for spec in specs(t)]
-names(t::CFWFTable) = [Symbol(var.name) for var in specs(t)]
-types(t::CFWFTable) = [var.datatype for var in specs(t)]
-Tables.schema(t::CFWFTable) = Tables.schema(names(t), types(t))
-Base.length(t::CFWFTable) = length(cols(t)[Symbol(specs(t)[1].name)])
+Tables.getcolumn(t::FWFTable, i::Int) = cols(t)[Symbol(specs(t)[i].name)]
+Tables.getcolumn(t::FWFTable, nm::Symbol) = cols(t)[nm]
+Tables.columnnames(t::FWFTable) = [Symbol(spec.name) for spec in specs(t)]
+names(t::FWFTable) = [Symbol(var.name) for var in specs(t)]
+types(t::FWFTable) = [var.datatype for var in specs(t)]
+Tables.schema(t::FWFTable) = Tables.schema(names(t), types(t))
+Base.length(t::FWFTable) = length(cols(t)[Symbol(specs(t)[1].name)])
 
 function createcolumn(::Type{FixedSizeString}, buffer, nrow, startpos, length, recordlength)
     CharVector{length, nrow}(buffer, startpos, recordlength)
@@ -380,7 +287,7 @@ function createcolumn(::Type{Float64}, buffer, nrow, startpos, length, recordlen
     return column
 end
 
-function CFile(filename::String, specs::Vector{Varspec})
+function File(filename::String, specs::Vector{Varspec})
     recordlength = maximum(spec.slice.stop for spec in specs)
     specselectie = [x for x in specs if x.datatype !== Nothing]
     buffer = open(filename) do io
@@ -394,13 +301,14 @@ function CFile(filename::String, specs::Vector{Varspec})
     while buffer[recordlength+1] in [0x0a, 0x0d]
         recordlength = recordlength + 1
     end
+    # TODO geen regeleinde bij laatste regel opvangen
     nrow = length(buffer) ÷ recordlength
     columns = Dict{Symbol,AbstractVector}()
     for spec in specselectie
         column = createcolumn(spec.datatype, buffer, nrow, spec.startpos, spec.length, recordlength)
         columns[Symbol(spec.name)] = column
     end
-    return CFWFTable(specselectie, columns)
+    return FWFTable(specselectie, columns)
 end
 
 function bytestoint(::Type{T}, b::Array{UInt8}) where {T<:Integer}
