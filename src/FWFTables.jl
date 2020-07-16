@@ -210,6 +210,11 @@ function Base.similar(cv::CharVector{N,L}) where {N,L}
     return CharVector{N,L}(Vector{UInt8}(undef, bufferlength), 1, N)
 end
 
+function Base.similar(cv::CharVector{N,L}, nrow::Integer) where {N,L}
+    bufferlength = nrow * N
+    return CharVector{N,nrow}(Vector{UInt8}(undef, bufferlength), 1, N)
+end
+
 function Base.copy(cv::CharVector{N,L}) where {N,L}
     bufferlength = L * N
     buffer = Vector{UInt8}(undef, bufferlength)
