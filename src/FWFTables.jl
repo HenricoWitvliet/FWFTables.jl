@@ -210,10 +210,10 @@ function Base.similar(cv::CharVector{N,L}) where {N,L}
     return CharVector{N,L}(Vector{UInt8}(undef, bufferlength), 1, N)
 end
 
-function Base.similar(cv::CharVector{N,L}, nrow::Integer) where {N,L}
-    bufferlength = nrow * N
-    return CharVector{N,nrow}(Vector{UInt8}(undef, bufferlength), 1, N)
-end
+#function Base.similar(cv::CharVector{N,L}, nrow::Integer) where {N,L}
+#    bufferlength = nrow * N
+#    return CharVector{N,nrow}(Vector{UInt8}(undef, bufferlength), 1, N)
+#end
 
 function Base.copy(cv::CharVector{N,L}) where {N,L}
     bufferlength = L * N
@@ -316,11 +316,11 @@ function File(filename::String, specs::Vector{Varspec})
     return FWFTable(specselectie, columns)
 end
 
-function bytestoint(::Type{T}, b::Array{UInt8}) where {T<:Integer}
+function bytestoint(::Type{T}, b) where {T<:Integer}
     if length(b) == 0
         return missing
     end
-    res::T = 0
+    res::T = 0  # "     " -> 0?
     sign = false
     for c in b
         if c == 0x2d && !sign 
@@ -339,7 +339,7 @@ function bytestoint(::Type{T}, b::Array{UInt8}) where {T<:Integer}
     return res
 end
 
-function bytestofloat(b::Array{UInt8}, dec = 0x2e)
+function bytestofloat(b, dec = 0x2e)
     if length(b) == 0
         return NaN64
     end
@@ -371,6 +371,16 @@ function bytestofloat(b::Array{UInt8}, dec = 0x2e)
     return res
 end
 
+function maakvec(buffer, nrow::Integer, start::Integer, lengte::Integer, recordlengte::Integer)
+	buf = IOBuffer(buffer)
+	res = Vector{FixedSizeString{lengte}}(undef, nrow)
+	pos=start
+	for i in 1:nrow
+	    unsafe_copyto!(pointer(res, i), convert(Ptr{FixedSizeString{10}}, pointer(buffer, pos)), 1)
+		pos = pos + recordlengte
+	end
+	return res
+end
 
 end # module
 
