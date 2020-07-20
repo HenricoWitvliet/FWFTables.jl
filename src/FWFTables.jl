@@ -1,12 +1,11 @@
 module FWFTables
 
-import Base.iterate
 import Tables
 import Parsers
 import Formatting
 import FixedSizeStrings.FixedSizeString
 
-export readbla, Varspec, FWFTable, makefmt, File, write, stringtoint
+export readbla, Varspec, FWFTable, File, write
 
 
 struct Varspec
@@ -29,25 +28,6 @@ convdatatype = Dict(
 )
 
 Base.tryparse(::Type{Int}, ::Nothing) = 0
-
-stringtodummy(s::String) = nothing
-stringtostring(s::String)::String = s
-function stringtoint(s::String)::Union{Missing,Int64}
-    val = try
-        Parsers.parse(Int64, s)
-    catch e
-        missing
-    end
-    return val
-end
-function stringtofloat(s::String)::Float64
-    val = try
-        Parsers.parse(Float64, s)
-    catch e
-        NaN
-    end
-    return val
-end
 
 
 """
@@ -98,93 +78,7 @@ function readbla(filename)
     return spec
 end
 
-function makefmt(spec::Varspec)
-    if spec.datatype == FixedSizeString
-        fmt = "{:0" * string(spec.length) * "s}"
-    elseif spec.datatype == Union{Missing, Int64}
-        fmt = "{:0" * string(spec.length) * "d}"
-    elseif spec.datatype == Float64
-        fmt = "{:0" * string(spec.length) * "." * string(spec.decimals) * "f}"
-    elseif spec.datatype == Nothing
-        fmt = repeat(" ", string(spec.length))
-    end
-    return fmt
-end
 
-function makefmt(specs::Vector{Varspec})
-    string([makefmt(spec) for spec in specs]...)
-end
-
-
-"""
-    File(filename, blafilename)
-
-Read a fixed width file, using the specs from blafile. Returns an object
-implementing the Tables interface. 
-
-# Examples
-```julia-repl
-julia> using DataFrames, FWFTables
-julia> df = DataFrame(FWFTables.File("data.asc", "spec.bla")
-```
-"""
-function File(filename::String, blafilename::String)
-    specs = readbla(blafilename)
-    File(filename, specs)
-end
-
-
-function write(filename::String, blafilename::String, table)
-    specs::Vector{Varspec} = readbla(blafilename)
-    write(filename, specs, table)
-end
-
-makewrite(::Type{FixedSizeString}, spec) = (io, val) -> Base.write(io, Ref(val))
-function makewrite(::Type{Union{Missing, Int64}}, spec)
-    fs = "0>" * string(spec.length) * "d"
-    fe = Formatting.FormatSpec(fs)
-    spaces = string([" " for i in 1:spec.length]) 
-    return (io, val) -> ismissing(val) ? spaces : Formatting.printfmt(io, fe, val)
-end
-function makewrite(::Type{Float64}, spec)
-    fs = "0>" * string(spec.length) * "." * string(spec.decimals) * "f"
-    fe = Formatting.FormatSpec(fs)
-    return (io, val) -> Formatting.printfmt(io, fe, val)
-end
-function makewrite(::Type{Nothing}, spec)
-    spaces = string([" " for i in 1:spec.length]) 
-    return io -> write(io, spaces)
-end
-
-
-function write(filename::String, specs::Array{Varspec, 1}, table)
-    writefcies = [spec.name => makewrite(spec.datatype, spec) for spec in specs]
-    open(filename, "w") do io
-        for row in Tables.rows(table)
-            for (name, writefcie) in writefcies
-                if name == :dummy
-                    writefcie(io)
-                else
-                    writefcie(io, row[name])
-                end
-            end    
-            println(io, "")
-        end
-    end
-end
-
-
-abstract type AbstractNchar{N} <: AbstractString end
-struct Nchar{N} <: AbstractNchar{N}
-    value::String
-end
-Base.length(x::Nchar{N}) where {N} = N
-Core.String(c::Nchar{N}) where {N} = c.value
-Base.display(x::Nchar{N}) where {N} = display(x.value)
-Base.show(io, x::Nchar{N}) where {N} = Base.show(io, x.value)
-
-
-# Nchar is vervangen door FixedSizeString uit FixedSizeStrings
 struct CharVector{N,L} <: AbstractVector{FixedSizeString{N}}
     buffer::Vector{UInt8}
     offset::Int64
@@ -280,8 +174,10 @@ function createcolumn(::Type{FixedSizeString}, buffer, nrow, startpos, length, r
     CharVector{length, nrow}(buffer, startpos, recordlength)
 end
 
+fw_convert(T::Type{<:Integer}, value) = Parsers.parse(T, value)
 fw_convert(::Type{Union{Missing, Int64}}, value) = something(Parsers.tryparse(Int64, value), missing)
 fw_convert(::Type{Float64}, value) = something(Parsers.tryparse(Float64, value), NaN64)
+fw_convert(::Type{Float32}, value) = something(Parsers.tryparse(Float32, value), NaN32)
 
 function createcolumn(T, buffer, nrow, startpos, length, recordlength)
     column = Vector{T}(undef, nrow)
@@ -296,22 +192,49 @@ function createcolumn(T, buffer, nrow, startpos, length, recordlength)
 end
 
 
+"""
+    File(filename, blafilename)
+
+Read a fixed width file, using the specs from blafile. Returns an object
+implementing the Tables interface. 
+
+# Examples
+```julia-repl
+julia> using DataFrames, FWFTables
+julia> df = DataFrame(FWFTables.File("data.asc", "spec.bla"))
+```
+"""
+function File(filename::String, blafilename::String)
+    specs = readbla(blafilename)
+    File(filename, specs)
+end
+
 function File(filename::String, specs::Vector{Varspec})
+    open(filename) do io
+        File(io, specs)
+    end
+end
+
+function File(io::IO, specs::Vector{Varspec})
     recordlength = maximum(spec.slice.stop for spec in specs)
     specselectie = [x for x in specs if x.datatype !== Nothing]
-    buffer = open(filename) do io
-        bom = read(io, 3) == [0xef, 0xbb, 0xbf]
-        if !bom
-            seekstart(io)
-        end
-        read(io)
+    pos = position(io)
+    bom = read(io, 3) == [0xef, 0xbb, 0xbf]
+    if !bom
+        seek(io, pos)
     end
-    # TODO geen records apart opvangen
+    buffer = read(io)
+    rawlength = recordlength
     while buffer[recordlength+1] in [0x0a, 0x0d]
         recordlength = recordlength + 1
     end
-    # TODO geen regeleinde bij laatste regel opvangen
-    nrow = length(buffer) ÷ recordlength
+    crlflength = recordlength - rawlength
+    # geen regeleinde bij laatste regel opvangen
+    if crlflength > 0 & !(buffer[end] in [0x0a, 0x0d])
+        nrow = (length(buffer) + crlflength) ÷ recordlength
+    else
+        nrow = length(buffer) ÷ recordlength
+    end
     columns = Dict{Symbol,AbstractVector}()
     for spec in specselectie
         column = createcolumn(spec.datatype, buffer, nrow, spec.startpos, spec.length, recordlength)
@@ -321,29 +244,50 @@ function File(filename::String, specs::Vector{Varspec})
 end
 
 
-function maakvec2(buffer, nrow::Integer, start::Integer, lengte::Integer, recordlengte::Integer)
-	res = Vector{FixedSizeString{lengte}}(undef, nrow)
-    pointer_from = pointer(buffer, 1) + start - 1
-    pointer_to = convert(Ptr{UInt8}, pointer(res, 1))
-	for i in 1:nrow
-        unsafe_copyto!(pointer_to, pointer_from, lengte)
-        pointer_from = pointer_from + recordlengte
-        pointer_to = pointer_to + lengte
-	end
-	return res
+makewrite(::Type{FixedSizeString}, spec) = (io, val) -> Base.write(io, Ref(val))
+function makewrite(::Type{Union{Missing, Int64}}, spec)
+    fs = "0>" * string(spec.length) * "d"
+    fe = Formatting.FormatSpec(fs)
+    spaces = repeat(" "spec.length) 
+    return (io, val) -> ismissing(val) ? spaces : Formatting.printfmt(io, fe, val)
+end
+function makewrite(::Type{Float64}, spec)
+    fs = "0>" * string(spec.length) * "." * string(spec.decimals) * "f"
+    fe = Formatting.FormatSpec(fs)
+    return (io, val) -> Formatting.printfmt(io, fe, val)
+end
+function makewrite(::Type{Nothing}, spec)
+    spaces = repeat(" "spec.length) 
+    return io -> Base.write(io, spaces)
 end
 
-function maakvec(buffer, nrow::Integer, start::Integer, lengte::Integer, recordlengte::Integer)
-	res = Vector{FixedSizeString{lengte}}(undef, nrow)
-    pointer_from = convert(Ptr{FixedSizeString{lengte}}, pointer(buffer, 1)) + start - 1
-    pointer_to = pointer(res, 1)
-	for i in 1:nrow
-        unsafe_copyto!(pointer_to, pointer_from, 1)
-        pointer_from = pointer_from + recordlengte
-        pointer_to = pointer_to + lengte
-	end
-	return res
+
+function write(filename::String, blafilename::String, table)
+    specs::Vector{Varspec} = readbla(blafilename)
+    write(filename, specs, table)
 end
+
+function write(filename::String, specs::Vector{Varspec}, table)
+    open(filename, "w") do io
+        write(io, specs, table)
+    end
+end
+
+function write(io::IO, specs::Vector{Varspec}, table)
+    writefcies = [spec.name => makewrite(spec.datatype, spec) for spec in specs]
+    for row in Tables.rows(table)
+        for (name, writefcie) in writefcies
+            if name == :dummy
+                writefcie(io)
+            else
+                writefcie(io, row[name])
+            end
+        end    
+        println(io, "")
+    end
+end
+
+
 
 end # module
 
