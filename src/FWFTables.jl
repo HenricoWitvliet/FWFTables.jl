@@ -225,12 +225,12 @@ function File(io::IO, specs::Vector{Varspec})
     end
     buffer = read(io)
     rawlength = recordlength
-    while buffer[recordlength+1] in [0x0a, 0x0d]
+    while (length(buffer) > recordlength) && (buffer[recordlength+1] in [0x0a, 0x0d])
         recordlength = recordlength + 1
     end
     crlflength = recordlength - rawlength
     # geen regeleinde bij laatste regel opvangen
-    if crlflength > 0 & !(buffer[end] in [0x0a, 0x0d])
+    if crlflength > 0 && !(buffer[end] in [0x0a, 0x0d])
         nrow = (length(buffer) + crlflength) ÷ recordlength
     else
         nrow = length(buffer) ÷ recordlength
@@ -248,7 +248,7 @@ makewrite(::Type{FixedSizeString}, spec) = (io, val) -> Base.write(io, Ref(val))
 function makewrite(::Type{Union{Missing, Int64}}, spec)
     fs = "0>" * string(spec.length) * "d"
     fe = Formatting.FormatSpec(fs)
-    spaces = repeat(" "spec.length) 
+    spaces = repeat(" ", spec.length) 
     return (io, val) -> ismissing(val) ? spaces : Formatting.printfmt(io, fe, val)
 end
 function makewrite(::Type{Float64}, spec)
@@ -257,7 +257,7 @@ function makewrite(::Type{Float64}, spec)
     return (io, val) -> Formatting.printfmt(io, fe, val)
 end
 function makewrite(::Type{Nothing}, spec)
-    spaces = repeat(" "spec.length) 
+    spaces = repeat(" ", spec.length) 
     return io -> Base.write(io, spaces)
 end
 
