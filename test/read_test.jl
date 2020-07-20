@@ -4,8 +4,8 @@ using FixedSizeStrings
 
 
 specs = [
-         Varspec("var1", 1:2, FixedSizeString, 1, 2, 0),
-         Varspec("var2", 3:4, FixedSizeString, 3, 2, 0),
+         Varspec("var1", FixedSizeString, 1, 2, 0),
+         Varspec("var2", FixedSizeString, 3, 2, 0),
         ]
 tb = FWFTables.File(IOBuffer("0102\n0304\n0506\n"), specs)
 

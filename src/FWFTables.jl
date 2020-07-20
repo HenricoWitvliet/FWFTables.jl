@@ -10,7 +10,6 @@ export readbla, Varspec, FWFTable, File, write
 
 struct Varspec
     name::String
-    slice::UnitRange{Int64}
     datatype::Type
     startpos::Int64
     length::Int64
@@ -60,16 +59,14 @@ function readbla(filename)
             len = parse(Int64, var[:length])
             decimals = Base.tryparse(Int64, var[:decimals])
             datatype = convdatatype[lowercase(var[:type])]
-            slice = startpos:(startpos+len-1)
             if var[:array] == ""
-                push!(spec, Varspec(name, slice, datatype, startpos, len, decimals))
+                push!(spec, Varspec(name, datatype, startpos, len, decimals))
                 startpos += len
             else
                 # vector of vars
                 for varnr = parse(Int64, var[:astart]):parse(Int64, var[a:eind])
                     tmpname = name * "_" * string(varnr)
-                    slice = startpos:(startpos+len-1)
-                    push!(spec, Varspec(tmpname, slice, datatype, startpos, len, decimals))
+                    push!(spec, Varspec(tmpname, datatype, startpos, len, decimals))
                     startpos += len
                 end
             end
@@ -216,7 +213,7 @@ function File(filename::String, specs::Vector{Varspec})
 end
 
 function File(io::IO, specs::Vector{Varspec})
-    recordlength = maximum(spec.slice.stop for spec in specs)
+    recordlength = maximum(spec.startpos + spec.length - 1 for spec in specs)
     specselectie = [x for x in specs if x.datatype !== Nothing]
     pos = position(io)
     bom = read(io, 3) == [0xef, 0xbb, 0xbf]
