@@ -28,8 +28,7 @@ convdatatype = Dict(
     "real" => Float64,
 )
 
-Parsers.tryparse(::Type{Int}, ::Nothing) = 0
-Parsers.tryparse(::Type{String}, s::String) = s
+Base.tryparse(::Type{Int}, ::Nothing) = 0
 
 stringtodummy(s::String) = nothing
 stringtostring(s::String)::String = s
@@ -49,13 +48,6 @@ function stringtofloat(s::String)::Float64
     end
     return val
 end
-
-convdatafunctie = Dict(
-    "string" => stringtostring,
-    "integer" => stringtoint,
-    "dummy" => stringtodummy,
-    "real" => stringtofloat,
-)
 
 
 """
@@ -86,7 +78,7 @@ function readbla(filename)
                 name = "dummy"
             end
             len = parse(Int64, var[:length])
-            decimals = Parsers.tryparse(Int64, var[:decimals])
+            decimals = Base.tryparse(Int64, var[:decimals])
             datatype = convdatatype[lowercase(var[:type])]
             slice = startpos:(startpos+len-1)
             if var[:array] == ""
@@ -147,11 +139,34 @@ function write(filename::String, blafilename::String, table)
     write(filename, specs, table)
 end
 
+function makewrite(spec)
+    if spec.datatype == FixedSizeString
+        return (io, val) -> write(io, Ref(val))
+    elseif spec.datatype == Union{Missing, Int64}
+        fs = "0>" * string(spec.length) * "d"
+        fe = Formatting.FormatSpec(fs)
+        return (io, val) -> Formatting.printfmt(io, fe, val)
+    elseif spec.datatype == Float64
+        fs = "0>" * string(spec.length) * "." * String(spec.decimals) * "f"
+        fe = Formatting.FormatSpec(fs)
+        return (io, val) -> Formatting.printfmt(io, fe, val)
+    else
+        spaces = string([" " for i in 1:spec.length]) 
+        return (io, val) -> write(io, spaces)
+    end
+end
+
+
 function write(filename::String, specs::Vector{Varspec}, table)
     fe = Formatting.FormatExpr(makefmt(specs))
+    writefcies = [spec.name => makewrite(spec) for spec in specs]
     open(filename, "w") do io
         for row in Tables.rows(table)
-            Formatting.printfmtln(io, fe, row...)
+            for (name, writefcie) in writefcies
+                #if name == :dummy
+                writefcie(io, row[name])
+            end    
+            println(io, "")
         end
     end
 end
@@ -180,7 +195,6 @@ Base.size(cv::CharVector{N,L}) where {N,L} = (L, 1)
 function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
     startpos = (i - 1) * cv.recordlength + cv.offset
     endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
-    #s = String(cv.buffer[startpos:endpos])
     s = FixedSizeString{N}(view(cv.buffer, startpos:endpos))
     return s
 end
@@ -206,42 +220,40 @@ end
 
 
 function Base.similar(cv::CharVector{N,L}) where {N,L}
-    bufferlength = L * N
-    return CharVector{N,L}(Vector{UInt8}(undef, bufferlength), 1, N)
+    return Vector{FixedSizeString{N}}(undef, L)
 end
 
-#function Base.similar(cv::CharVector{N,L}, nrow::Integer) where {N,L}
-#    bufferlength = nrow * N
-#    return CharVector{N,nrow}(Vector{UInt8}(undef, bufferlength), 1, N)
-#end
-
 function Base.copy(cv::CharVector{N,L}) where {N,L}
-    bufferlength = L * N
-    buffer = Vector{UInt8}(undef, bufferlength)
-    offset = cv.offset
+	res = Vector{FixedSizeString{N}}(undef, L)
     recordlength = cv.recordlength
-    for i = 0:(L-1)
-        buffer[i*N+1:i*N+N] = cv.buffer[i*recordlength+offset:i * recordlength+offset+N-1]
-    end
-    return CharVector{N,L}(buffer, 1, N)
+    pointer_from = pointer(cv.buffer, 1) + cv.offset - 1
+    pointer_to = convert(Ptr{UInt8}, pointer(res, 1))
+	for i in 1:L
+        unsafe_copyto!(pointer_to, pointer_from, N)
+        pointer_from = pointer_from + recordlength
+        pointer_to = pointer_to + N
+	end
+	return res
 end
 
 Tables.allocatecolumn(::Type{FixedSizeString{N}}, L) where {N} =
-    CharVector{N,L}(Vector{UInt8}(undef, L * N), 1, N)
+    Vector{FixedSizeString{N}}(undef, L)
+
 function Base.copyto!(
-    dest::CharVector{N,L},
+    dest::Vector{FixedSizeString{N}},
     d_o::Integer,
     src::CharVector{N,M},
-) where {N,L,M}
-    for i = 0:(M-1)
-        dest.buffer[(d_o-1+i)*dest.recordlength+dest.offset:(d_o - 1 + i) *
-                                                            dest.recordlength+dest.offset+N-1] =
-            src.buffer[i*src.recordlength+src.offset:i * src.recordlength+src.offset+N-1]
+) where {N,M}
+    recordlength = src.recordlength
+    pointer_from = pointer(src.buffer, 1) + src.start - 1
+    pointer_to = convert(Ptr{UInt8}, pointer(dest, d_o))
+    for i = 1:M
+        unsafe_copyto!(pointer_to, pointer_from, N)
+        pointer_from = pointer_from + recordlength
+        pointer_to = pointer_to + N
     end
 end
 
-# TODO: deleteat!(cv::CharVector, i::Integer)
-# TODO: deleteat!(cv::CharVector, inds)
 
 struct FWFTable <: Tables.AbstractColumns
     specs::Vector{Varspec}
@@ -266,31 +278,21 @@ function createcolumn(::Type{FixedSizeString}, buffer, nrow, startpos, length, r
     CharVector{length, nrow}(buffer, startpos, recordlength)
 end
 
-function createcolumn(::Type{Union{Missing, Int64}}, buffer, nrow, startpos, length, recordlength)
-    column = Vector{Union{Missing, Int64}}(missing, nrow)
-    select_end = startpos + length - 1
+fw_convert(::Type{Union{Missing, Int64}}, value) = something(Parsers.tryparse(Int64, value), missing)
+fw_convert(::Type{Float64}, value) = something(Parsers.tryparse(Float64, value), NaN64)
+
+function createcolumn(T, buffer, nrow, startpos, length, recordlength)
+    column = Vector{T}(undef, nrow)
+    pos = startpos
+    endpos = startpos + length - 1
     for i = 1:nrow
-        setindex!(
-            column,
-            bytestoint(Int64, buffer[(i-1)*recordlength+startpos:(i-1)*recordlength+select_end]),
-            i,
-        )
+        setindex!(column, fw_convert(T, view(buffer, pos:endpos)), i)
+        pos = pos + recordlength
+        endpos = endpos + recordlength
     end
     return column
 end
 
-function createcolumn(::Type{Float64}, buffer, nrow, startpos, length, recordlength)
-    column = Vector{Float64}(undef, nrow)
-    select_end = startpos + length - 1
-    for i = 1:nrow
-        setindex!(
-            column,
-            bytestofloat(buffer[(i-1)*recordlength+startpos:(i-1)*recordlength+select_end]),
-            i,
-           )
-    end
-    return column
-end
 
 function File(filename::String, specs::Vector{Varspec})
     recordlength = maximum(spec.slice.stop for spec in specs)
@@ -316,68 +318,27 @@ function File(filename::String, specs::Vector{Varspec})
     return FWFTable(specselectie, columns)
 end
 
-function bytestoint(::Type{T}, b) where {T<:Integer}
-    if length(b) == 0
-        return missing
-    end
-    res::T = 0  # "     " -> 0?
-    sign = false
-    for c in b
-        if c == 0x2d && !sign 
-            sign = true
-            continue
-        elseif c == 0x20
-            continue
-        elseif (c < 0x30) || (c > 0x39)
-            return missing
-        end
-        res = res * 10 + c - 48
-    end
-    if sign
-      return -res
-    end
-    return res
-end
 
-function bytestofloat(b, dec = 0x2e)
-    if length(b) == 0
-        return NaN64
-    end
-    res::Float64 = 0
-    sign = false
-    pre = true
-    factor = 0.1
-    for c in b
-    	if c == 0x2d && !sign
-            sign = true
-            continue
-        elseif c == 0x20
-            continue
-        elseif c == dec
-            pre = false
-            continue
-        elseif (c < 0x30) || (c > 0x39)
-            return NaN64
-        elseif pre
-            res = res * 10 + c - 48
-        else
-            res = res + factor * (c - 48)
-            factor = factor / 10
-        end
-    end
-    if sign
-      return -res
-    end
-    return res
+function maakvec2(buffer, nrow::Integer, start::Integer, lengte::Integer, recordlengte::Integer)
+	res = Vector{FixedSizeString{lengte}}(undef, nrow)
+    pointer_from = pointer(buffer, 1) + start - 1
+    pointer_to = convert(Ptr{UInt8}, pointer(res, 1))
+	for i in 1:nrow
+        unsafe_copyto!(pointer_to, pointer_from, lengte)
+        pointer_from = pointer_from + recordlengte
+        pointer_to = pointer_to + lengte
+	end
+	return res
 end
 
 function maakvec(buffer, nrow::Integer, start::Integer, lengte::Integer, recordlengte::Integer)
-	buf = IOBuffer(buffer)
 	res = Vector{FixedSizeString{lengte}}(undef, nrow)
-	pos=start
+    pointer_from = convert(Ptr{FixedSizeString{lengte}}, pointer(buffer, 1)) + start - 1
+    pointer_to = pointer(res, 1)
 	for i in 1:nrow
-	    unsafe_copyto!(pointer(res, i), convert(Ptr{FixedSizeString{10}}, pointer(buffer, pos)), 1)
-		pos = pos + recordlengte
+        unsafe_copyto!(pointer_to, pointer_from, 1)
+        pointer_from = pointer_from + recordlengte
+        pointer_to = pointer_to + lengte
 	end
 	return res
 end
