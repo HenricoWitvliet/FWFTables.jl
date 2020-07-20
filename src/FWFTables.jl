@@ -139,32 +139,34 @@ function write(filename::String, blafilename::String, table)
     write(filename, specs, table)
 end
 
-function makewrite(spec)
-    if spec.datatype == FixedSizeString
-        return (io, val) -> write(io, Ref(val))
-    elseif spec.datatype == Union{Missing, Int64}
-        fs = "0>" * string(spec.length) * "d"
-        fe = Formatting.FormatSpec(fs)
-        return (io, val) -> Formatting.printfmt(io, fe, val)
-    elseif spec.datatype == Float64
-        fs = "0>" * string(spec.length) * "." * String(spec.decimals) * "f"
-        fe = Formatting.FormatSpec(fs)
-        return (io, val) -> Formatting.printfmt(io, fe, val)
-    else
-        spaces = string([" " for i in 1:spec.length]) 
-        return (io, val) -> write(io, spaces)
-    end
+makewrite(::Type{FixedSizeString}, spec) = (io, val) -> Base.write(io, Ref(val))
+function makewrite(::Type{Union{Missing, Int64}}, spec)
+    fs = "0>" * string(spec.length) * "d"
+    fe = Formatting.FormatSpec(fs)
+    spaces = string([" " for i in 1:spec.length]) 
+    return (io, val) -> ismissing(val) ? spaces : Formatting.printfmt(io, fe, val)
+end
+function makewrite(::Type{Float64}, spec)
+    fs = "0>" * string(spec.length) * "." * string(spec.decimals) * "f"
+    fe = Formatting.FormatSpec(fs)
+    return (io, val) -> Formatting.printfmt(io, fe, val)
+end
+function makewrite(::Type{Nothing}, spec)
+    spaces = string([" " for i in 1:spec.length]) 
+    return io -> write(io, spaces)
 end
 
 
-function write(filename::String, specs::Vector{Varspec}, table)
-    fe = Formatting.FormatExpr(makefmt(specs))
-    writefcies = [spec.name => makewrite(spec) for spec in specs]
+function write(filename::String, specs::Array{Varspec, 1}, table)
+    writefcies = [spec.name => makewrite(spec.datatype, spec) for spec in specs]
     open(filename, "w") do io
         for row in Tables.rows(table)
             for (name, writefcie) in writefcies
-                #if name == :dummy
-                writefcie(io, row[name])
+                if name == :dummy
+                    writefcie(io)
+                else
+                    writefcie(io, row[name])
+                end
             end    
             println(io, "")
         end
