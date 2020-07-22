@@ -7,7 +7,6 @@ import FixedSizeStrings.FixedSizeString
 
 export readbla, Varspec, FWFTable, File, write
 
-
 struct Varspec
     name::String
     datatype::Type
@@ -15,7 +14,6 @@ struct Varspec
     length::Int64
     decimals::Int64
 end
-
 
 varregex = r"(?i)\s*((?P<name>\w+)\s*(?P<tekst>\".*\"|)\s*:|)\s*(?P<array>ARRAY\[(?P<astart>\d+)\.\.(?P<aeind>\d+)\]\s*OF\s*|)(?P<type>DUMMY|STRING|REAL|INTEGER)\s*\[\s*(?P<length>\d+)(\s*,\s*(?P<decimals>\d+)|)\s*\].*"
 

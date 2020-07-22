@@ -1,5 +1,5 @@
-FWFTables
-=========
+FWFTables.jl
+============
 
 Deze bibliotheek bevat functies om eenvoudig fixed width bestanden te lezen en schrijven.
 
