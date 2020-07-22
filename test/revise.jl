@@ -1,4 +1,5 @@
 # julia -i -q --color=yes --project revise.jl example
+push!(LOAD_PATH, "../")
 
 using Revise, Jive
 using FWFTables

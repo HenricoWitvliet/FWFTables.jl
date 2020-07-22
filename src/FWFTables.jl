@@ -233,7 +233,7 @@ function File(io::IO, specs::Vector{Varspec})
         nrow = length(buffer) ÷ recordlength
     end
     columns = Dict{Symbol,AbstractVector}()
-    for spec in specselectie
+    Threads.@threads for spec in specselectie
         column = createcolumn(spec.datatype, buffer, nrow, spec.startpos, spec.length, recordlength)
         columns[Symbol(spec.name)] = column
     end
