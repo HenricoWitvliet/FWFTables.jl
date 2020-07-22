@@ -83,7 +83,7 @@ struct CharVector{N,L} <: AbstractVector{FixedSizeString{N}}
 end
 
 Base.IndexStyle(cv::CharVector{N,L}) where {N,L} = IndexLinear()
-Base.size(cv::CharVector{N,L}) where {N,L} = (L, 1)
+Base.size(cv::CharVector{N,L}) where {N,L} = (L, )
 
 function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
     startpos = (i - 1) * cv.recordlength + cv.offset
@@ -92,10 +92,11 @@ function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
     return s
 end
 
-Base.view(cv::CharVector{N, L}, i::Integer) where {N, L} = cv[i]
-Base.getindex(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = view(cv, collect(inds))
-Base.getindex(cv::CharVector{N, L}, inds) where {N, L} = view(cv, inds)
-Base.Broadcast.dotview(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = Base.Broadcast.dotview(cv, collect(inds))
+#Base.view(cv::CharVector{N, L}, i::Integer) where {N, L} = cv[i]
+#Base.view(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = view(cv, collect(inds))
+#Base.getindex(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = view(cv, collect(inds))
+#Base.getindex(cv::CharVector{N, L}, inds) where {N, L} = view(cv, inds)
+#Base.Broadcast.dotview(cv::CharVector{N, L}, inds::AbstractUnitRange) where {N, L} = Base.Broadcast.dotview(cv, collect(inds))
 
 function Base.setindex!(cv::CharVector{N,L}, v, i::Integer) where {N,L}
     startpos = (i - 1) * cv.recordlength + cv.offset
@@ -117,16 +118,16 @@ function Base.similar(cv::CharVector{N,L}) where {N,L}
 end
 
 function Base.copy(cv::CharVector{N,L}) where {N,L}
-	res = Vector{FixedSizeString{N}}(undef, L)
+    res = Vector{FixedSizeString{N}}(undef, L)
     recordlength = cv.recordlength
     pointer_from = pointer(cv.buffer, 1) + cv.offset - 1
     pointer_to = convert(Ptr{UInt8}, pointer(res, 1))
-	for i in 1:L
+    for i in 1:L
         unsafe_copyto!(pointer_to, pointer_from, N)
         pointer_from = pointer_from + recordlength
         pointer_to = pointer_to + N
-	end
-	return res
+    end
+    return res
 end
 
 Tables.allocatecolumn(::Type{FixedSizeString{N}}, L) where {N} =
