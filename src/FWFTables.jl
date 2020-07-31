@@ -84,9 +84,10 @@ Base.IndexStyle(cv::CharVector{N,L}) where {N,L} = IndexLinear()
 Base.size(cv::CharVector{N,L}) where {N,L} = (L, )
 
 function Base.getindex(cv::CharVector{N,L}, i::Integer) where {N,L}
+    @boundscheck 1 <= i <= L || throw("index $i out of bounds")
     startpos = (i - 1) * cv.recordlength + cv.offset
     endpos = (i - 1) * cv.recordlength + cv.offset + N - 1
-    s = FixedSizeString{N}(view(cv.buffer, startpos:endpos))
+    @inbounds s = FixedSizeString{N}(view(cv.buffer, startpos:endpos))
     return s
 end
 
