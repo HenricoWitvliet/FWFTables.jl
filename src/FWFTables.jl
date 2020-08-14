@@ -228,9 +228,9 @@ function File(io::IO, specs::Vector{Varspec})
     crlflength = recordlength - rawlength
     # geen regeleinde bij laatste regel opvangen
     if crlflength > 0 && !(buffer[end] in [0x0a, 0x0d])
-        nrow = (length(buffer) + crlflength) Ã· recordlength
+        nrow = (length(buffer) + crlflength) ÷ recordlength
     else
-        nrow = length(buffer) Ã· recordlength
+        nrow = length(buffer) ÷ recordlength
     end
     columns = Dict{Symbol,AbstractVector}()
     Threads.@threads for spec in specselectie
