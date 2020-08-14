@@ -228,9 +228,9 @@ function File(io::IO, specs::Vector{Varspec})
     crlflength = recordlength - rawlength
     # geen regeleinde bij laatste regel opvangen
     if crlflength > 0 && !(buffer[end] in [0x0a, 0x0d])
-        nrow = (length(buffer) + crlflength) ÷ recordlength
+        nrow = (length(buffer) + crlflength) Ã· recordlength
     else
-        nrow = length(buffer) ÷ recordlength
+        nrow = length(buffer) Ã· recordlength
     end
     columns = Dict{Symbol,AbstractVector}()
     Threads.@threads for spec in specselectie
@@ -284,7 +284,7 @@ function write(filename::String, specs::Vector{Varspec}, table)
 end
 
 function write(io::IO, specs::Vector{Varspec}, table)
-    writefcies = [spec.name => makewrite(spec.datatype, spec) for spec in specs]
+    writefcies = [Symbol(spec.name) => makewrite(spec.datatype, spec) for spec in specs]
     for row in Tables.rows(table)
         for (name, writefcie) in writefcies
             if name == :dummy
