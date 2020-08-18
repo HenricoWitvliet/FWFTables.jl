@@ -1,6 +1,8 @@
 FWFTables.jl
 ============
 
+[![Build Status](https://travis-ci.com/HenricoWitvliet/FWFTables.jl.svg?branch=master)](https://travis-ci.com/HenricoWitvliet/FWFTables.jl)
+
 This package contains functions for working with fixed width ascii files.
 
 The File-function is used to read data. The specifications must be given as
