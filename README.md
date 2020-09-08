@@ -2,6 +2,7 @@ FWFTables.jl
 ============
 
 [![Build Status](https://travis-ci.com/HenricoWitvliet/FWFTables.jl.svg?branch=master)](https://travis-ci.com/HenricoWitvliet/FWFTables.jl)
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://HenricoWitvliet.github.io/FWFTables.jl/dev)
 
 This package contains functions for working with fixed width ascii files.
 
