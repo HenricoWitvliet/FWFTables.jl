@@ -1,7 +1,7 @@
 name = "FWFTables"
 uuid = "1acc1471-1fd5-4be2-a8c2-3f3b1db75813"
 authors = ["henrico "]
-version = "1.0.0"
+version = "0.1.0"
 
 [deps]
 FixedSizeStrings = "3ca710bb-85d4-534c-9bae-b7b5d9e27e20"
