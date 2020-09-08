@@ -7,6 +7,27 @@ import FixedSizeStrings.FixedSizeString
 
 export readbla, Varspec, FWFTable, File, write
 
+"""
+    Varspec
+
+Struct to hold all relevant information for one variable. 
+Fields are
+
+- name: name of the variable
+- datatype: Julia type of variable
+- startpos: starting position of variabele in record
+- length: length in bytes of variable
+- decimals: for float-type the number of decimals
+
+Predefined usable types are `FixedSizeString{N}` for string variables,
+`Union{Missing,Int64}` and `IntXX` for integer variables, `FloatXX` for real numbers and
+`Nothing` for variables that must be skipped. If you want to use another type for input,
+then you must define `fw_convert` to convert the byte-string to the given type.
+
+To write to a fixed width file, generator functions for the used types must be available.
+Predefined function are defined for `FixedSizeString{N}`, `Union{Missing,Int64}`,
+`Float64` and `Nothing`. For other functions the function `makewrite` must be defined.
+"""
 struct Varspec
     name::String
     datatype::Type
@@ -32,6 +53,19 @@ Base.tryparse(::Type{Int}, ::Nothing) = 0
 
 Read a Blaise specification file for a fixed width ascii file. Returns a vector
 of 'Varspec' objects.
+
+A simple example of a Blaise specification file looks like
+```
+datamodel testbla
+ Fields
+    var1        : integer[9]
+    var2        : string[8]
+    dummy[2]
+    var3        : Real[8, 2]
+    vars        : Array[2010..2050] of STRING[4]
+endmodel
+```
+
 """
 function readbla(filename)
     spec = Vector{Varspec}()
@@ -175,6 +209,7 @@ fw_convert(T::Type{<:Integer}, value) = Parsers.parse(T, value)
 fw_convert(::Type{Union{Missing, Int64}}, value) = something(Parsers.tryparse(Int64, value), missing)
 fw_convert(::Type{Float64}, value) = something(Parsers.tryparse(Float64, value), NaN64)
 fw_convert(::Type{Float32}, value) = something(Parsers.tryparse(Float32, value), NaN32)
+fw_convert(::Type{Float16}, value) = something(Parsers.tryparse(Float16, value), NaN32)
 
 function createcolumn(T, buffer, nrow, startpos, length, recordlength)
     column = Vector{T}(undef, nrow)
@@ -190,10 +225,14 @@ end
 
 
 """
-    File(filename, blafilename)
+    File(filename::String, blafilename::String)
 
 Read a fixed width file, using the specs from blafile. Returns an object
 implementing the Tables interface. 
+
+If the file starts with the 3 byte BOM for utf-8, it will be skipped.
+The line-ending is determined based on the first line. If the file uses a mixed line
+ending, the data will not be read correctly.
 
 # Examples
 ```julia-repl
@@ -206,12 +245,22 @@ function File(filename::String, blafilename::String)
     File(filename, specs)
 end
 
+"""
+    File(filename::String, specs::Vector{Varspec})
+
+Read a fixed width file.
+"""
 function File(filename::String, specs::Vector{Varspec})
     open(filename) do io
         File(io, specs)
     end
 end
 
+"""
+    File(io:IO, specs::Vector{Varspec})
+
+Read a fixed width file.
+"""
 function File(io::IO, specs::Vector{Varspec})
     recordlength = maximum(spec.startpos + spec.length - 1 for spec in specs)
     specselectie = [x for x in specs if x.datatype !== Nothing]
@@ -260,7 +309,7 @@ end
 
 
 """
-    write(filename, blafilename, table)
+    write(filename::String, blafilename::String, table)
 
 Write the table to a fixed width ascii file. The blafile contains the specifications of
 the file in the Blaise format.
@@ -277,12 +326,22 @@ function write(filename::String, blafilename::String, table)
     write(filename, specs, table)
 end
 
+"""
+    write(filename::String, specs::Vector{Varspec}, table)
+
+Write the table to a fixed width ascii file
+"""
 function write(filename::String, specs::Vector{Varspec}, table)
     open(filename, "w") do io
         write(io, specs, table)
     end
 end
 
+"""
+    write(io::IO, specs::Vector{Varspec}, table)
+
+Write the table to a fixed width ascii file
+"""
 function write(io::IO, specs::Vector{Varspec}, table)
     writefcies = [Symbol(spec.name) => makewrite(spec.datatype, spec) for spec in specs]
     for row in Tables.rows(table)
@@ -296,7 +355,6 @@ function write(io::IO, specs::Vector{Varspec}, table)
         println(io, "")
     end
 end
-
 
 
 end # module
