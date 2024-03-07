@@ -1,20 +1,21 @@
 name = "FWFTables"
 uuid = "1acc1471-1fd5-4be2-a8c2-3f3b1db75813"
-authors = ["henrico "]
-version = "0.1.1"
+authors = ["Henrico Witvliet"]
+version = "0.2.0"
 
 [deps]
-FixedSizeStrings = "3ca710bb-85d4-534c-9bae-b7b5d9e27e20"
 Format = "1fa38f19-a742-5d3f-a2b9-30dd87b9d5f8"
+InlineStrings = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 Parsers = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [compat]
-FixedSizeStrings = "0.1"
 Format = "1.3"
+InlineStrings = "1.4"
 Parsers = "1, 2"
 Tables = "1.0"
-julia = "1.5"
+julia = "1.6"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
