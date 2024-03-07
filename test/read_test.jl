@@ -1,31 +1,39 @@
 using Test
 using FWFTables
-using FixedSizeStrings
+using InlineStrings
 
 
 specs = [
-         Varspec("var1", FixedSizeString, 1, 2, 0),
-         Varspec("var2", FixedSizeString, 3, 2, 0),
+         Varspec("var1", InlineStrings.String3, String, identity, 1, 2),
+         Varspec("var2", InlineStrings.String3, String, identity, 3, 2),
         ]
-tb = FWFTables.File(IOBuffer("0102\n0304\n0506\n"), specs)
+tmpname = tempname()
+Base.write(tmpname, "0102\n0304\n0506\n")
+tb = FWFTables.File(tmpname, specs)
 
 @test length(tb) == 3
-@test tb.var1[1] == FixedSizeString{2}("01")
-@test tb.var1[2] == FixedSizeString{2}("03")
-@test tb.var1[3] == FixedSizeString{2}("05")
-@test tb.var2[1] == FixedSizeString{2}("02")
-@test tb.var2[2] == FixedSizeString{2}("04")
-@test tb.var2[3] == FixedSizeString{2}("06")
+@test tb.var1[1] == "01"
+@test tb.var1[2] == "03"
+@test tb.var1[3] == "05"
+@test tb.var2[1] == "02"
+@test tb.var2[2] == "04"
+@test tb.var2[3] == "06"
                     
 # no newline at end
-tb = FWFTables.File(IOBuffer("0102\n0304\n0506"), specs)
+tmpname = tempname()
+Base.write(tmpname, "0102\n0304\n0506")
+tb = FWFTables.File(tmpname, specs)
 @test length(tb) == 3
 
 # empty input
-tb = FWFTables.File(IOBuffer(""), specs)
+tmpname = tempname()
+Base.write(tmpname, "")
+tb = FWFTables.File(tmpname, specs)
 @test length(tb) == 0
 
 # empty input
-tb = FWFTables.File(IOBuffer("\n"), specs)
+tmpname = tempname()
+Base.write(tmpname, "\n")
+tb = FWFTables.File(tmpname, specs)
 @test length(tb) == 0
 
