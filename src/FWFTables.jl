@@ -2,7 +2,7 @@ module FWFTables
 
 import Tables
 import Parsers
-import Formatting
+import Format
 import FixedSizeStrings.FixedSizeString
 
 export readbla, Varspec, FWFTable, File, write
@@ -292,15 +292,13 @@ end
 
 makewrite(::Type{FixedSizeString}, spec) = (io, val) -> Base.write(io, Ref(val))
 function makewrite(::Type{Union{Missing, Int64}}, spec)
-    fs = "0>" * string(spec.length) * "d"
-    fe = Formatting.FormatSpec(fs)
+    fe = Format.FormatSpec(string("0>", spec.length, "d"))
     spaces = repeat(" ", spec.length) 
-    return (io, val) -> ismissing(val) ? spaces : Formatting.printfmt(io, fe, val)
+    return (io, val) -> ismissing(val) ? spaces : Format.printfmt(io, fe, val)
 end
 function makewrite(::Type{Float64}, spec)
-    fs = "0>" * string(spec.length) * "." * string(spec.decimals) * "f"
-    fe = Formatting.FormatSpec(fs)
-    return (io, val) -> Formatting.printfmt(io, fe, val)
+    fe = Format.FormatSpec(string("0>", spec.length, ".", spec.decimals, "f"))
+    return (io, val) -> Format.printfmt(io, fe, val)
 end
 function makewrite(::Type{Nothing}, spec)
     spaces = repeat(" ", spec.length) 
