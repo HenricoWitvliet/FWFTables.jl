@@ -1,7 +1,7 @@
 name = "FWFTables"
 uuid = "1acc1471-1fd5-4be2-a8c2-3f3b1db75813"
 authors = ["Henrico Witvliet"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 Format = "1fa38f19-a742-5d3f-a2b9-30dd87b9d5f8"
